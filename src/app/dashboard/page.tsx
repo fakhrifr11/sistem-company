@@ -82,7 +82,7 @@ export default function Dashboard() {
 
 *ID:* ${item.id}
 *Nama Project:* ${item.namaProject}
-*Status:* ${item.status}
+*Status:* ${item.status === "Selesai" ? "🟢" : "🟡"} ${item.status}
 *Tgl Masuk:* ${item.tglMasuk}
 *Tgl Keluar:* ${item.tglKeluar}
 
