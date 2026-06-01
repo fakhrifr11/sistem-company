@@ -2,8 +2,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CloudBackground from "@/components/CloudBackground";
-// Tambahan icon ExternalLink di import ini
-import { Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink } from "lucide-react";
+// Tambahan icon Send untuk Telegram
+import { Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink, Send } from "lucide-react";
 import Header from "@/app/header/page"; 
 import { supabase } from "@/utils/supabase";
 
@@ -68,6 +68,56 @@ export default function Dashboard() {
     setFormData(item);
     setIsModalOpen(true);
   };
+
+  // === FUNGSI BARU UNTUK MENGIRIM KE TELEGRAM ===
+  const handleSendTelegram = async (item: ProjectData) => {
+    // PENTING: Ganti dengan Token Bot dan Chat ID milikmu
+    // Disarankan menyimpannya di file .env (process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN)
+    const BOT_TOKEN = "8941562735:AAHU-uqsTYODZwE3DF0343HsZh_ih2Ry4iI"; 
+    const CHAT_ID = "-1003752685844"; 
+
+    // Format pesan yang akan dikirim (menggunakan Markdown agar rapi)
+    const message = `
+📋 *Detail Project Job List* 📋
+
+*ID:* ${item.id}
+*Nama Project:* ${item.namaProject}
+*Status:* ${item.status}
+*Tgl Masuk:* ${item.tglMasuk}
+*Tgl Keluar:* ${item.tglKeluar}
+
+*Keluhan:*
+_${item.keluhan}_
+
+*Perbaikan:*
+_${item.perbaikan || "-"}_
+
+*Dokumentasi:*
+${item.dokumentasi || "-"}
+    `;
+
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: CHAT_ID,
+          text: message,
+          parse_mode: "Markdown",
+        }),
+      });
+
+      if (response.ok) {
+        alert("Berhasil! Data telah dikirim ke Telegram.");
+      } else {
+        alert("Gagal mengirim data ke Telegram.");
+      }
+    } catch (error) {
+      console.error("Telegram error:", error);
+      alert("Terjadi kesalahan saat menghubungi Telegram API.");
+    }
+  };
+  // ==============================================
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,7 +242,7 @@ export default function Dashboard() {
                   <th className="p-4 min-w-[200px]">Perbaikan</th>
                   <th className="p-4">Status</th>
                   <th className="p-4">Dokumentasi</th>
-                  <th className="p-4 min-w-[140px]">Aksi</th>
+                  <th className="p-4 min-w-[180px]">Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -218,7 +268,6 @@ export default function Dashboard() {
                         </span>
                       </td>
                       
-                      {/* === KOLOM DOKUMENTASI YANG BISA DIKLIK === */}
                       <td className="p-4 max-w-[150px] truncate">
                         {item.dokumentasi && item.dokumentasi !== "-" ? (
                           <a 
@@ -226,7 +275,7 @@ export default function Dashboard() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                            title={item.dokumentasi} // Memunculkan teks lengkap jika di-hover
+                            title={item.dokumentasi}
                           >
                             <span className="truncate">{item.dokumentasi}</span>
                             <ExternalLink className="w-3 h-3 flex-shrink-0" />
@@ -235,7 +284,6 @@ export default function Dashboard() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      {/* ======================================== */}
 
                       <td className="p-4 flex gap-2">
                         <button 
@@ -261,6 +309,16 @@ export default function Dashboard() {
                         <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Data">
                           <Trash2 className="w-4 h-4" />
                         </button>
+
+                        {/* === TOMBOL KIRIM KE TELEGRAM DI SINI === */}
+                        <button 
+                          onClick={() => handleSendTelegram(item)} 
+                          className="p-2 bg-sky-100 text-sky-600 rounded-lg hover:bg-sky-200" 
+                          title="Kirim ke Telegram"
+                        >
+                          <Send className="w-4 h-4" />
+                        </button>
+                        {/* ======================================== */}
                       </td>
                     </motion.tr>
                   ))}
