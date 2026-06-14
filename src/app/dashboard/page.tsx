@@ -2,8 +2,11 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CloudBackground from "@/components/CloudBackground";
-// Tambahan icon Send untuk Telegram
-import { Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink, Send } from "lucide-react";
+// Pastikan icon untuk sidebar sudah ikut ter-import di sini
+import { 
+  Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink, Send,
+  LayoutDashboard, FileText, PieChart, ChevronLeft, ChevronRight 
+} from "lucide-react";
 import Header from "@/app/header/page"; 
 import { supabase } from "@/utils/supabase";
 
@@ -11,6 +14,7 @@ type ProjectData = {
   id: string;
   tglMasuk: string;
   tglKeluar: string;
+  perusahaan: string; // <-- Tambahan Perusahaan
   namaProject: string;
   keluhan: string;
   perbaikan: string;
@@ -21,6 +25,22 @@ type ProjectData = {
 export default function Dashboard() {
   const [data, setData] = useState<ProjectData[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // State Filter & Modal
+  const [filter, setFilter] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState<Partial<ProjectData>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // State Sidebar & Menu
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeMenu, setActiveMenu] = useState("Job list");
+
+  const menuItems = [
+    { id: "Job list", label: "Job List", icon: LayoutDashboard },
+    { id: "Invoice", label: "Invoice", icon: FileText },
+    { id: "Analisis", label: "Analisis", icon: PieChart },
+  ];
 
   const fetchData = async () => {
     setLoading(true);
@@ -36,6 +56,7 @@ export default function Dashboard() {
         id: p.id,
         tglMasuk: p.tgl_masuk,
         tglKeluar: p.tgl_keluar,
+        perusahaan: p.perusahaan || "-", 
         namaProject: p.nama_project,
         keluhan: p.keluhan,
         perbaikan: p.perbaikan,
@@ -50,15 +71,10 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
   }, []);
-  
-  const [filter, setFilter] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState<Partial<ProjectData>>({});
-  
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   const filteredData = data.filter((item) =>
     item.namaProject.toLowerCase().includes(filter.toLowerCase()) ||
+    (item.perusahaan && item.perusahaan.toLowerCase().includes(filter.toLowerCase())) ||
     item.status.toLowerCase().includes(filter.toLowerCase()) ||
     item.id.toLowerCase().includes(filter.toLowerCase())
   );
@@ -69,18 +85,15 @@ export default function Dashboard() {
     setIsModalOpen(true);
   };
 
-  // === FUNGSI BARU UNTUK MENGIRIM KE TELEGRAM ===
   const handleSendTelegram = async (item: ProjectData) => {
-    // PENTING: Ganti dengan Token Bot dan Chat ID milikmu
-    // Disarankan menyimpannya di file .env (process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN)
     const BOT_TOKEN = "8941562735:AAHU-uqsTYODZwE3DF0343HsZh_ih2Ry4iI"; 
     const CHAT_ID = "-1003752685844"; 
 
-    // Format pesan yang akan dikirim (menggunakan Markdown agar rapi)
     const message = `
 📋 *Detail Project Job List* 📋
 
 *ID:* ${item.id}
+*Perusahaan:* ${item.perusahaan}
 *Nama Project:* ${item.namaProject}
 *Status:* ${item.status === "Selesai" ? "🟢" : "🟡"} ${item.status}
 *Tgl Masuk:* ${item.tglMasuk}
@@ -117,7 +130,6 @@ ${item.dokumentasi || "-"}
       alert("Terjadi kesalahan saat menghubungi Telegram API.");
     }
   };
-  // ==============================================
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,6 +140,7 @@ ${item.dokumentasi || "-"}
         .update({
           tgl_masuk: formData.tglMasuk,
           tgl_keluar: formData.tglKeluar,
+          perusahaan: formData.perusahaan,
           nama_project: formData.namaProject,
           keluhan: formData.keluhan,
           perbaikan: formData.perbaikan,
@@ -153,6 +166,7 @@ ${item.dokumentasi || "-"}
             id: newId,
             tgl_masuk: formData.tglMasuk || "-",
             tgl_keluar: formData.tglKeluar || "-",
+            perusahaan: formData.perusahaan || "-",
             nama_project: formData.namaProject,
             keluhan: formData.keluhan,
             perbaikan: formData.perbaikan || "",
@@ -207,176 +221,234 @@ ${item.dokumentasi || "-"}
 
   return (
     <CloudBackground>
+      {/* HEADER: Biarkan dia melayang di posisi aslinya */}
       <Header /> 
-      
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-7xl mt-24 bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50"
-      >
-        <div className="p-8">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-extrabold text-blue-900">Data Job List</h1>
+
+      {/* WRAPPER UTAMA (SIDEBAR + KONTEN) */}
+      {/* pt-[90px] akan mendorong seluruh layout ini ke bawah agar tidak tertutup Header */}
+      <div className="flex h-screen w-full overflow-hidden pt-[90px] box-border relative z-40">
+        
+        {/* === SIDEBAR === */}
+        <motion.div 
+          animate={{ width: isSidebarOpen ? 260 : 80 }}
+          transition={{ duration: 0.4, type: "spring", bounce: 0.1 }}
+          className="relative bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl z-40 flex flex-col h-[calc(100%-2rem)] ml-4 my-4 rounded-3xl"
+          >
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="absolute -right-3 top-6 bg-blue-500 text-white rounded-full p-1 shadow-lg hover:bg-cyan-400 transition-colors z-50"
+          >
+            {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+
+          {/* Menu Items (Logo SISTEMKU di sidebar dihapus karena Header sudah ada logonya) */}
+          <div className="flex-1 py-6 px-3 space-y-2 overflow-y-auto">
+            {menuItems.map((menu) => {
+              
+              const Icon = menu.icon;
+              const isActive = activeMenu === menu.id;
+
+              return (
+                <motion.button
+                  key={menu.id}
+                  onClick={() => setActiveMenu(menu.id)}
+                  whileHover={{ x: 4 }}
+                  whileTap={{ scale: 0.95 }}
+                  className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 overflow-hidden ${
+                    isActive 
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-white shadow-lg shadow-blue-500/30 font-bold" 
+                      : "text-blue-900/70 hover:bg-blue-100/50 hover:text-blue-900 font-medium"
+                  }`}
+                  title={menu.label}
+                >
+                  <Icon className={`w-6 h-6 flex-shrink-0 ${isActive ? "text-white" : "text-blue-600"}`} />
+                  <span className={`whitespace-nowrap transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
+                    {menu.label}
+                  </span>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* === KONTEN UTAMA === */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8 relative h-full">
+          <div className="w-full max-w-7xl mx-auto flex flex-col h-full">
             
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Cari project, ID, atau status..."
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="pl-10 pr-4 py-2 rounded-full bg-white border-2 border-blue-200 outline-none focus:border-blue-500 shadow-sm min-w-[250px]"
-              />
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-blue-100 bg-white/60 mb-6">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-blue-500 text-white">
-                  <th className="p-4">ID</th>
-                  <th className="p-4 whitespace-nowrap">Tgl Masuk</th>
-                  <th className="p-4 whitespace-nowrap">Tgl Keluar</th>
-                  <th className="p-4 min-w-[150px]">Nama Project</th>
-                  <th className="p-4 min-w-[200px]">Keluhan</th>
-                  <th className="p-4 min-w-[200px]">Perbaikan</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Dokumentasi</th>
-                  <th className="p-4 min-w-[180px]">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                <AnimatePresence>
-                  {filteredData.map((item, index) => (
-                    <motion.tr
-                      key={item.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ delay: index * 0.05 }}
-                      className="border-b border-blue-100 hover:bg-blue-50/50"
-                    >
-                      <td className="p-4 font-semibold text-blue-800">{item.id}</td>
-                      <td className="p-4 text-gray-700">{item.tglMasuk}</td>
-                      <td className="p-4 text-gray-700 font-medium">{item.tglKeluar}</td>
-                      <td className="p-4 text-gray-800 font-medium">{item.namaProject}</td>
-                      <td className="p-4 text-gray-600">{item.keluhan}</td>
-                      <td className="p-4 text-gray-600">{item.perbaikan}</td>
-                      <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${item.status === 'Selesai' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {item.status}
-                        </span>
-                      </td>
+            {/* 1. MENU JOB LIST */}
+            {activeMenu === "Job list" && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="w-full bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50 flex flex-col"
+                >
+                  <div className="p-8 flex-1">
+                    <div className="flex justify-between items-center mb-8">
+                      <h1 className="text-3xl font-extrabold text-blue-900">Data Job List</h1>
                       
-                      <td className="p-4 max-w-[150px] truncate">
-                        {item.dokumentasi && item.dokumentasi !== "-" ? (
-                          <a 
-                            href={item.dokumentasi.startsWith('http') ? item.dokumentasi : `https://${item.dokumentasi}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                            title={item.dokumentasi}
-                          >
-                            <span className="truncate">{item.dokumentasi}</span>
-                            <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+                        <input
+                          type="text"
+                          placeholder="Cari project, perusahaan..."
+                          value={filter}
+                          onChange={(e) => setFilter(e.target.value)}
+                          className="pl-10 pr-4 py-2 rounded-full bg-white border-2 border-blue-200 outline-none focus:border-blue-500 shadow-sm min-w-[250px]"
+                        />
+                      </div>
+                    </div>
 
-                      <td className="p-4 flex gap-2">
-                        <button 
-                          onClick={() => handleToggleStatus(item.id, item.status)} 
-                          className={`p-2 rounded-lg transition-colors ${
-                            item.status === 'Selesai' 
-                              ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' 
-                              : 'bg-green-100 text-green-600 hover:bg-green-200'
-                          }`}
-                          title={item.status === 'Selesai' ? "Batalkan Selesai" : "Tandai Selesai"}
-                        >
-                          {item.status === 'Selesai' ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-                        </button>
-                        
-                        <button 
-                          onClick={() => handleEditClick(item)} 
-                          className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" 
-                          title="Edit Data"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        
-                        <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Data">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                    <div className="overflow-x-auto rounded-xl border border-blue-100 bg-white/60 mb-6">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-blue-500 text-white">
+                            <th className="p-4">ID</th>
+                            <th className="p-4 whitespace-nowrap">Tgl Masuk</th>
+                            <th className="p-4 whitespace-nowrap">Tgl Keluar</th>
+                            <th className="p-4 min-w-[150px]">Perusahaan</th>
+                            <th className="p-4 min-w-[150px]">Nama Project</th>
+                            <th className="p-4 min-w-[200px]">Keluhan</th>
+                            <th className="p-4 min-w-[200px]">Perbaikan</th>
+                            <th className="p-4">Status</th>
+                            <th className="p-4">Dokumentasi</th>
+                            <th className="p-4 min-w-[180px]">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <AnimatePresence>
+                            {filteredData.map((item, index) => (
+                              <motion.tr
+                                key={item.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ delay: index * 0.05 }}
+                                className="border-b border-blue-100 hover:bg-blue-50/50"
+                              >
+                                <td className="p-4 font-semibold text-blue-800">{item.id}</td>
+                                <td className="p-4 text-gray-700">{item.tglMasuk}</td>
+                                <td className="p-4 text-gray-700 font-medium">{item.tglKeluar}</td>
+                                <td className="p-4 text-gray-800 font-bold">{item.perusahaan}</td>
+                                <td className="p-4 text-gray-800 font-medium">{item.namaProject}</td>
+                                <td className="p-4 text-gray-600">{item.keluhan}</td>
+                                <td className="p-4 text-gray-600">{item.perbaikan}</td>
+                                <td className="p-4">
+                                  <span className={`px-3 py-1 rounded-full text-sm font-bold ${item.status === 'Selesai' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                    {item.status}
+                                  </span>
+                                </td>
+                                <td className="p-4 max-w-[150px] truncate">
+                                  {item.dokumentasi && item.dokumentasi !== "-" ? (
+                                    <a 
+                                      href={item.dokumentasi.startsWith('http') ? item.dokumentasi : `https://${item.dokumentasi}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                                      title={item.dokumentasi}
+                                    >
+                                      <span className="truncate">{item.dokumentasi}</span>
+                                      <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="p-4 flex gap-2">
+                                  <button onClick={() => handleToggleStatus(item.id, item.status)} className={`p-2 rounded-lg transition-colors ${item.status === 'Selesai' ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' : 'bg-green-100 text-green-600 hover:bg-green-200'}`} title={item.status === 'Selesai' ? "Batalkan Selesai" : "Tandai Selesai"}>
+                                    {item.status === 'Selesai' ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                                  </button>
+                                  <button onClick={() => handleEditClick(item)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Data">
+                                    <Edit className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Data">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => handleSendTelegram(item)} className="p-2 bg-sky-100 text-sky-600 rounded-lg hover:bg-sky-200" title="Kirim ke Telegram">
+                                    <Send className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </motion.tr>
+                            ))}
+                          </AnimatePresence>
+                        </tbody>
+                      </table>
+                    </div>
 
-                        {/* === TOMBOL KIRIM KE TELEGRAM DI SINI === */}
-                        <button 
-                          onClick={() => handleSendTelegram(item)} 
-                          className="p-2 bg-sky-100 text-sky-600 rounded-lg hover:bg-sky-200" 
-                          title="Kirim ke Telegram"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
-                        {/* ======================================== */}
-                      </td>
-                    </motion.tr>
-                  ))}
-                </AnimatePresence>
-              </tbody>
-            </table>
+                    <div className="w-full pt-6 border-t border-blue-200/50 flex justify-center items-center gap-2 text-sm text-blue-800/60 font-semibold">
+                      <span>Sistem Company © 2026 | Dibuat dengan</span>
+                      <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}>
+                        <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
+                      </motion.div>
+                      <span>oleh Fakhri</span>
+                      <motion.div animate={{ y: [0, -8, 0], rotate: [-10, 10, -10] }} transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }} className="ml-1">
+                        <Sun className="w-5 h-5 text-yellow-500 fill-yellow-400" />
+                      </motion.div>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => { setEditingId(null); setFormData({}); setIsModalOpen(true); }}
+                  className="fixed bottom-10 right-10 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-full shadow-2xl shadow-blue-500/50 z-50 flex items-center gap-2"
+                >
+                  <Plus className="w-6 h-6" />
+                  <span className="font-bold pr-2">Tambah Data</span>
+                </motion.button>
+              </>
+            )}
+
+            {/* 2. MENU INVOICE */}
+            {activeMenu === "Invoice" && (
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex items-center justify-center bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl min-h-[60vh]">
+                <div className="text-center">
+                  <FileText className="w-20 h-20 text-blue-300 mx-auto mb-4" />
+                  <h2 className="text-3xl font-extrabold text-blue-900">Modul Invoice</h2>
+                  <p className="text-gray-500 mt-2">Fitur ini sedang dalam tahap pengembangan.</p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* 3. MENU ANALISIS */}
+            {activeMenu === "Analisis" && (
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex items-center justify-center bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl min-h-[60vh]">
+                <div className="text-center">
+                  <PieChart className="w-20 h-20 text-cyan-300 mx-auto mb-4" />
+                  <h2 className="text-3xl font-extrabold text-blue-900">Modul Analisis</h2>
+                  <p className="text-gray-500 mt-2">Fitur ini sedang dalam tahap pengembangan.</p>
+                </div>
+              </motion.div>
+            )}
+
           </div>
-
-          <div className="w-full pt-6 border-t border-blue-200/50 flex justify-center items-center gap-2 text-sm text-blue-800/60 font-semibold">
-            <span>Sistem Company © 2026 | Dibuat dengan</span>
-            <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}>
-              <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
-            </motion.div>
-            <span>oleh Fakhri</span>
-            <motion.div animate={{ y: [0, -8, 0], rotate: [-10, 10, -10] }} transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }} className="ml-1">
-              <Sun className="w-5 h-5 text-yellow-500 fill-yellow-400" />
-            </motion.div>
-          </div>
-
         </div>
-      </motion.div>
+      </div>
 
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={() => {
-          setEditingId(null);
-          setFormData({});
-          setIsModalOpen(true);
-        }}
-        className="fixed bottom-10 right-10 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-full shadow-2xl shadow-blue-500/50 z-50 flex items-center gap-2"
-      >
-        <Plus className="w-6 h-6" />
-        <span className="font-bold pr-2">Tambah Data</span>
-      </motion.button>
-
+      {/* ================= MODAL FORM ================= */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-24">
             <motion.div
               initial={{ opacity: 0, scale: 0.8, y: 50 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 50 }}
               className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto"
             >
-              <button 
-                onClick={() => { setIsModalOpen(false); setEditingId(null); }} 
-                className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors"
-              >
+              <button onClick={() => { setIsModalOpen(false); setEditingId(null); }} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors">
                 <X className="w-6 h-6" />
               </button>
               
-              <h2 className="text-2xl font-bold text-blue-900 mb-6">
-                {editingId ? "Edit Project" : "Tambah Project Baru"}
-              </h2>
+              <h2 className="text-2xl font-bold text-blue-900 mb-6">{editingId ? "Edit Project" : "Tambah Project Baru"}</h2>
               
               <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="text-sm font-semibold text-gray-600">Perusahaan</label>
+                  <input required type="text" value={formData.perusahaan || ""} onChange={e => setFormData({...formData, perusahaan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                </div>
+                
+                <div className="col-span-2 sm:col-span-1">
                   <label className="text-sm font-semibold text-gray-600">Nama Project</label>
                   <input required type="text" value={formData.namaProject || ""} onChange={e => setFormData({...formData, namaProject: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
                 </div>
@@ -412,12 +484,7 @@ ${item.dokumentasi || "-"}
                   <textarea value={formData.perbaikan || ""} onChange={e => setFormData({...formData, perbaikan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" rows={2}></textarea>
                 </div>
                 
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  type="submit"
-                  className="col-span-2 py-3 mt-2 bg-gradient-to-r from-blue-500 to-cyan-400 text-white rounded-xl font-bold shadow-lg"
-                >
+                <motion.button type="submit" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="col-span-2 py-3 mt-2 bg-gradient-to-r from-blue-500 to-cyan-400 text-white rounded-xl font-bold shadow-lg">
                   {editingId ? "Simpan Perubahan" : "Simpan Data"}
                 </motion.button>
               </form>
