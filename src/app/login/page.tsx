@@ -1,15 +1,13 @@
-// app/page.tsx
 "use client";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import CloudBackground from "@/components/CloudBackground"; // Sesuaikan path jika perlu
-import { supabase } from "@/utils/supabase";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
 
-  //STATE BARU untuk menyimpan inputan user dan status loading/error
+  // STATE untuk menyimpan inputan user dan status loading/error
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,48 +23,53 @@ export default function AuthPage() {
 
     try {
       if (isLogin) {
-        // PROSES LOGIN
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email,
-          password: password,
+        // ================= PROSES LOGIN (VERCEL POSTGRES) =================
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
         });
+        
+        const data = await res.json();
 
-        if (error) throw error;
+        if (!res.ok) {
+          throw new Error(data.error || "Gagal login. Periksa kembali data Anda.");
+        }
+        
+        // Simpan data user (tanpa password) ke localStorage agar dibaca oleh Header
+        localStorage.setItem("userSession", JSON.stringify(data.user));
         
         // Jika berhasil, langsung ke dashboard
         router.push("/dashboard");
         
       } else {
-        // PROSES SIGN UP (Buat Akun)
-        const { data, error } = await supabase.auth.signUp({
-          email: email,
-          password: password,
-          options: {
-            data: {
-              full_name: fullName, // Menyimpan nama user ke database auth
-            }
-          }
+        // ================= PROSES SIGN UP (VERCEL POSTGRES) =================
+        if (password.length < 6) {
+          throw new Error("Password terlalu pendek (minimal 6 karakter).");
+        }
+
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: fullName, email, password })
         });
 
-        if (error) throw error;
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Gagal mendaftar.");
+        }
         
         alert("Pendaftaran berhasil! Silakan login.");
+        
         // Kosongkan form dan ubah ke mode login
         setFullName("");
         setPassword("");
         setIsLogin(true);
       }
     } catch (error: any) {
-      // Mengubah pesan error bawaan Supabase menjadi bahasa Indonesia yang ramah
-      if (error.message === "Invalid login credentials") {
-        setErrorMsg("Email atau password yang Anda masukkan salah.");
-      } else if (error.message === "User already registered") {
-        setErrorMsg("Email ini sudah terdaftar. Silakan login.");
-      } else if (error.message.includes("Password should be at least")) {
-        setErrorMsg("Password terlalu pendek (minimal 6 karakter).");
-      } else {
-        setErrorMsg(error.message); // Tampilkan error lainnya
-      }
+      // Menampilkan pesan error dari API (Sudah berbahasa Indonesia dari backend)
+      setErrorMsg(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -99,7 +102,7 @@ export default function AuthPage() {
           </button>
         </div>
 
-        {/* // AREA PESAN ERROR  */}
+        {/* AREA PESAN ERROR */}
         <AnimatePresence>
           {errorMsg && (
             <motion.div
@@ -121,7 +124,6 @@ export default function AuthPage() {
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
               >
-                {/* Tambahan: value & onChange untuk Name */}
                 <input
                   type="text"
                   placeholder="Nama Lengkap"
@@ -134,8 +136,7 @@ export default function AuthPage() {
             )}
           </AnimatePresence>
 
-         {/* Tambahan: value & onChange untuk Email & Password */}
-         <input
+          <input
             type="email"
             placeholder="Email"
             value={email}
@@ -143,6 +144,7 @@ export default function AuthPage() {
             className="w-full p-3 rounded-lg bg-white/70 border-none outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-500"
             required
           />
+          
           <input
             type="password"
             placeholder="Password"

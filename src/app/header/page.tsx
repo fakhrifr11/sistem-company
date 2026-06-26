@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { LogOut, User as UserIcon, Cloud } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/utils/supabase";
 
 export default function Header() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -17,41 +16,32 @@ export default function Header() {
     initials: "-"
   });
 
-  // Mengambil data user yang sedang login saat Header dimuat
+  // Mengambil data user (Versi Tanpa Supabase / Dummy Sementara)
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    // Ambil data user yang disimpan saat login tadi
+    const sessionString = localStorage.getItem("userSession");
+    
+    if (sessionString) {
+      const user = JSON.parse(sessionString);
+      const initials = user.name.substring(0, 2).toUpperCase();
 
-      if (user) {
-        // Ambil nama dari metadata (yang kita simpan saat Sign Up)
-        // Jika tidak ada nama, gunakan potongan huruf sebelum '@' pada email
-        const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || "User";
-        const email = user.email || "";
-        
-        // Buat 2 huruf inisial dari nama (misal: Budi -> BU)
-        const initials = fullName.substring(0, 2).toUpperCase();
-
-        setUserData({
-          name: fullName,
-          email: email,
-          initials: initials
-        });
-      } else {
-        // KEAMANAN TAMBAHAN: Jika tidak ada data sesi/user (belum login), kembalikan ke halaman login
-        router.push("/login");
-      }
-    };
-
-    fetchUser();
+      setUserData({
+        name: user.name,
+        email: user.email,
+        initials: initials
+      });
+    } else {
+      // Jika tidak ada sesi, paksa kembali ke login
+      router.push("/login");
+    }
   }, [router]);
 
-  // === FUNGSI LOGOUT & PINDAH KE PAGE LOGIN ===
-  const handleLogout = async () => {
-    // Hapus sesi di database
-    await supabase.auth.signOut();
-    // Arahkan ke halaman login (root '/')
+  const handleLogout = () => {
+    // Hapus data sesi lalu tendang ke halaman login
+    localStorage.removeItem("userSession");
     router.push("/login");
-  }; //===========================================
+  };
+  //===========================================
 
   return (
     <motion.header

@@ -1,20 +1,20 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import CloudBackground from "@/components/CloudBackground";
-// Pastikan icon untuk sidebar sudah ikut ter-import di sini
 import { 
   Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink, Send,
-  LayoutDashboard, FileText, PieChart, ChevronLeft, ChevronRight 
+  LayoutDashboard, FileText, PieChart, ChevronLeft, ChevronRight,
+  Printer
 } from "lucide-react";
 import Header from "@/app/header/page"; 
-import { supabase } from "@/utils/supabase";
 
 type ProjectData = {
   id: string;
   tglMasuk: string;
   tglKeluar: string;
-  perusahaan: string; // <-- Tambahan Perusahaan
+  perusahaan: string;
   namaProject: string;
   keluhan: string;
   perbaikan: string;
@@ -22,19 +22,41 @@ type ProjectData = {
   dokumentasi: string;
 };
 
+type InvoiceData = {
+  id: string;
+  perusahaan: string;
+  tanggal: string;
+  jatuhTempo: string;
+  total: number;
+  status: "Draft" | "Terkirim" | "Lunas" | "Overdue";
+};
+
 export default function Dashboard() {
+  const router = useRouter();
+  
+  // State Utama
   const [data, setData] = useState<ProjectData[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // State Filter & Modal
   const [filter, setFilter] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<ProjectData>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // State Sidebar & Menu
+  // State Sidebar
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeMenu, setActiveMenu] = useState("Job list");
+
+  // State Invoice
+  const [invoices, setInvoices] = useState<InvoiceData[]>([]);
+  const [invoiceFilter, setInvoiceFilter] = useState("");
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [invoiceFormData, setInvoiceFormData] = useState({
+    perusahaan: "",
+    tanggal: new Date().toISOString().split('T')[0],
+    jatuhTempo: "",
+    status: "Draft" as "Draft" | "Terkirim" | "Lunas" | "Overdue",
+    items: [{ deskripsi: "", qty: 1, harga: 0 }]
+  });
 
   const menuItems = [
     { id: "Job list", label: "Job List", icon: LayoutDashboard },
@@ -42,28 +64,29 @@ export default function Dashboard() {
     { id: "Analisis", label: "Analisis", icon: PieChart },
   ];
 
+  // ===================== FETCH DATA DARI VERCEL POSTGRES =====================
   const fetchData = async () => {
     setLoading(true);
-    const { data: projects, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('id', { ascending: true });
-
-    if (error) {
+    try {
+      const response = await fetch('/api/projects');
+      const result = await response.json();
+      
+      if (result.data) {
+        const formattedData = result.data.map((p: any) => ({
+          id: p.id,
+          tglMasuk: p.tgl_masuk,
+          tglKeluar: p.tgl_keluar,
+          perusahaan: p.perusahaan || "-", 
+          namaProject: p.nama_project,
+          keluhan: p.keluhan,
+          perbaikan: p.perbaikan,
+          status: p.status,
+          dokumentasi: p.dokumentasi
+        }));
+        setData(formattedData);
+      }
+    } catch (error) {
       console.error("Gagal mengambil data:", error);
-    } else if (projects) {
-      const formattedData = projects.map((p) => ({
-        id: p.id,
-        tglMasuk: p.tgl_masuk,
-        tglKeluar: p.tgl_keluar,
-        perusahaan: p.perusahaan || "-", 
-        namaProject: p.nama_project,
-        keluhan: p.keluhan,
-        perbaikan: p.perbaikan,
-        status: p.status,
-        dokumentasi: p.dokumentasi
-      }));
-      setData(formattedData);
     }
     setLoading(false);
   };
@@ -79,12 +102,112 @@ export default function Dashboard() {
     item.id.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const filteredInvoices = invoices.filter((item) =>
+    item.perusahaan.toLowerCase().includes(invoiceFilter.toLowerCase()) ||
+    item.id.toLowerCase().includes(invoiceFilter.toLowerCase()) ||
+    item.status.toLowerCase().includes(invoiceFilter.toLowerCase())
+  );
+
+  const uniqueCompanies = Array.from(new Set(data.map(item => item.perusahaan).filter(Boolean)));
+
+  // ===================== HANDLER JOB LIST (DB VERCEL) =====================
   const handleEditClick = (item: ProjectData) => {
     setEditingId(item.id);
     setFormData(item);
     setIsModalOpen(true);
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (editingId) {
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingId,
+            tgl_masuk: formData.tglMasuk,
+            tgl_keluar: formData.tglKeluar,
+            perusahaan: formData.perusahaan,
+            nama_project: formData.namaProject,
+            keluhan: formData.keluhan,
+            perbaikan: formData.perbaikan,
+            status: formData.status,
+            dokumentasi: formData.dokumentasi
+          })
+        });
+        
+        if (!res.ok) throw new Error("Gagal update data");
+        
+        setIsModalOpen(false);
+        setFormData({});
+        setEditingId(null);
+        fetchData();
+      } catch (err: any) {
+        alert(err.message);
+      }
+    } else {
+      const newId = `PRJ-00${data.length + 1}`;
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newId,
+            tgl_masuk: formData.tglMasuk || "-",
+            tgl_keluar: formData.tglKeluar || "-",
+            perusahaan: formData.perusahaan || "-",
+            nama_project: formData.namaProject,
+            keluhan: formData.keluhan,
+            perbaikan: formData.perbaikan || "",
+            status: formData.status || "Proses",
+            dokumentasi: formData.dokumentasi || ""
+          })
+        });
+        
+        if (!res.ok) throw new Error("Gagal menyimpan data");
+
+        setIsModalOpen(false);
+        setFormData({});
+        fetchData(); 
+      } catch (err: any) {
+        alert(err.message);
+      }
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Yakin ingin menghapus project ini?")) return;
+    try {
+      const res = await fetch(`/api/projects?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Gagal menghapus data");
+      fetchData(); 
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleToggleStatus = async (id: string, currentStatus: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const isProses = currentStatus === "Proses";
+    const newStatus = isProses ? "Selesai" : "Proses";
+    const newTglKeluar = isProses ? today : "-";
+
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus, tgl_keluar: newTglKeluar })
+      });
+      if (!res.ok) throw new Error("Gagal merubah status");
+      fetchData(); 
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // ===================== HANDLER TELEGRAM =====================
   const handleSendTelegram = async (item: ProjectData) => {
     const BOT_TOKEN = "8941562735:AAHU-uqsTYODZwE3DF0343HsZh_ih2Ry4iI"; 
     const CHAT_ID = "-1003752685844"; 
@@ -113,11 +236,7 @@ ${item.dokumentasi || "-"}
       const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: CHAT_ID,
-          text: message,
-          parse_mode: "Markdown",
-        }),
+        body: JSON.stringify({ chat_id: CHAT_ID, text: message, parse_mode: "Markdown" }),
       });
 
       if (response.ok) {
@@ -126,106 +245,68 @@ ${item.dokumentasi || "-"}
         alert("Gagal mengirim data ke Telegram.");
       }
     } catch (error) {
-      console.error("Telegram error:", error);
       alert("Terjadi kesalahan saat menghubungi Telegram API.");
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // ===================== HANDLER INVOICE =====================
+  const handleDeleteInvoice = (id: string) => {
+    if (!confirm("Yakin ingin menghapus invoice ini?")) return;
+    const updatedInvoices = invoices.filter(inv => inv.id !== id);
+    setInvoices(updatedInvoices);
+  };
+
+  const handleAddInvoiceItem = () => {
+    setInvoiceFormData({
+      ...invoiceFormData,
+      items: [...invoiceFormData.items, { deskripsi: "", qty: 1, harga: 0 }]
+    });
+  };
+
+  const handleInvoiceItemChange = (index: number, field: string, value: any) => {
+    const newItems = [...invoiceFormData.items];
+    newItems[index] = { ...newItems[index], [field]: value };
+    setInvoiceFormData({ ...invoiceFormData, items: newItems });
+  };
+
+  const handleRemoveInvoiceItem = (index: number) => {
+    if (invoiceFormData.items.length === 1) return;
+    const newItems = invoiceFormData.items.filter((_, i) => i !== index);
+    setInvoiceFormData({ ...invoiceFormData, items: newItems });
+  };
+
+  const calculateInvoiceTotal = () => {
+    return invoiceFormData.items.reduce((sum, item) => sum + (item.qty * item.harga), 0);
+  };
+
+  const handleInvoiceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const newInvoice: InvoiceData = {
+      id: `INV-202600${invoices.length + 1}`,
+      perusahaan: invoiceFormData.perusahaan === "Manual" ? "" : invoiceFormData.perusahaan,
+      tanggal: invoiceFormData.tanggal,
+      jatuhTempo: invoiceFormData.jatuhTempo || "-",
+      total: calculateInvoiceTotal(),
+      status: invoiceFormData.status
+    };
+
+    setInvoices([...invoices, newInvoice]);
+    setIsInvoiceModalOpen(false);
     
-    if (editingId) {
-      const { error } = await supabase
-        .from('projects')
-        .update({
-          tgl_masuk: formData.tglMasuk,
-          tgl_keluar: formData.tglKeluar,
-          perusahaan: formData.perusahaan,
-          nama_project: formData.namaProject,
-          keluhan: formData.keluhan,
-          perbaikan: formData.perbaikan,
-          status: formData.status,
-          dokumentasi: formData.dokumentasi
-        })
-        .eq('id', editingId);
-
-      if (error) {
-        alert("Gagal mengupdate data: " + error.message);
-      } else {
-        setIsModalOpen(false);
-        setFormData({});
-        setEditingId(null);
-        fetchData();
-      }
-    } else {
-      const newId = `PRJ-00${data.length + 1}`;
-      const { error } = await supabase
-        .from('projects')
-        .insert([
-          {
-            id: newId,
-            tgl_masuk: formData.tglMasuk || "-",
-            tgl_keluar: formData.tglKeluar || "-",
-            perusahaan: formData.perusahaan || "-",
-            nama_project: formData.namaProject,
-            keluhan: formData.keluhan,
-            perbaikan: formData.perbaikan || "",
-            status: formData.status || "Proses",
-            dokumentasi: formData.dokumentasi || "",
-          }
-        ]);
-
-      if (error) {
-        alert("Gagal menyimpan: " + error.message);
-      } else {
-        setIsModalOpen(false);
-        setFormData({});
-        fetchData(); 
-      }
-    }
+    setInvoiceFormData({
+      perusahaan: "",
+      tanggal: new Date().toISOString().split('T')[0],
+      jatuhTempo: "",
+      status: "Draft",
+      items: [{ deskripsi: "", qty: 1, harga: 0 }]
+    });
+    alert("Invoice baru berhasil dibuat!");
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Yakin ingin menghapus project ini?")) return;
-    
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      alert("Gagal menghapus data: " + error.message);
-    } else {
-      fetchData(); 
-    }
-  };
-
-  const handleToggleStatus = async (id: string, currentStatus: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    const isProses = currentStatus === "Proses";
-    
-    const newStatus = isProses ? "Selesai" : "Proses";
-    const newTglKeluar = isProses ? today : "-";
-
-    const { error } = await supabase
-      .from('projects')
-      .update({ status: newStatus, tgl_keluar: newTglKeluar })
-      .eq('id', id);
-
-    if (error) {
-      alert("Gagal merubah status: " + error.message);
-    } else {
-      fetchData(); 
-    }
-  };
-
+  // ===================== RENDER LAYOUT =====================
   return (
     <CloudBackground>
-      {/* HEADER: Biarkan dia melayang di posisi aslinya */}
       <Header /> 
-
-      {/* WRAPPER UTAMA (SIDEBAR + KONTEN) */}
-      {/* pt-[90px] akan mendorong seluruh layout ini ke bawah agar tidak tertutup Header */}
       <div className="flex h-screen w-full overflow-hidden pt-[90px] box-border relative z-40">
         
         {/* === SIDEBAR === */}
@@ -233,18 +314,16 @@ ${item.dokumentasi || "-"}
           animate={{ width: isSidebarOpen ? 260 : 80 }}
           transition={{ duration: 0.4, type: "spring", bounce: 0.1 }}
           className="relative bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl z-40 flex flex-col h-[calc(100%-2rem)] ml-4 my-4 rounded-3xl"
-          >
+        >
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className="absolute -right-3 top-6 bg-blue-500 text-white rounded-full p-1 shadow-lg hover:bg-cyan-400 transition-colors z-50"
           >
             {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </button>
+          </button>
 
-          {/* Menu Items (Logo SISTEMKU di sidebar dihapus karena Header sudah ada logonya) */}
           <div className="flex-1 py-6 px-3 space-y-2 overflow-y-auto">
             {menuItems.map((menu) => {
-              
               const Icon = menu.icon;
               const isActive = activeMenu === menu.id;
 
@@ -286,7 +365,6 @@ ${item.dokumentasi || "-"}
                   <div className="p-8 flex-1">
                     <div className="flex justify-between items-center mb-8">
                       <h1 className="text-3xl font-extrabold text-blue-900">Data Job List</h1>
-                      
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
                         <input
@@ -318,14 +396,7 @@ ${item.dokumentasi || "-"}
                         <tbody>
                           <AnimatePresence>
                             {filteredData.map((item, index) => (
-                              <motion.tr
-                                key={item.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                transition={{ delay: index * 0.05 }}
-                                className="border-b border-blue-100 hover:bg-blue-50/50"
-                              >
+                              <motion.tr key={item.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ delay: index * 0.05 }} className="border-b border-blue-100 hover:bg-blue-50/50">
                                 <td className="p-4 font-semibold text-blue-800">{item.id}</td>
                                 <td className="p-4 text-gray-700">{item.tglMasuk}</td>
                                 <td className="p-4 text-gray-700 font-medium">{item.tglKeluar}</td>
@@ -340,33 +411,18 @@ ${item.dokumentasi || "-"}
                                 </td>
                                 <td className="p-4 max-w-[150px] truncate">
                                   {item.dokumentasi && item.dokumentasi !== "-" ? (
-                                    <a 
-                                      href={item.dokumentasi.startsWith('http') ? item.dokumentasi : `https://${item.dokumentasi}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                                      title={item.dokumentasi}
-                                    >
-                                      <span className="truncate">{item.dokumentasi}</span>
-                                      <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                    <a href={item.dokumentasi.startsWith('http') ? item.dokumentasi : `https://${item.dokumentasi}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium" title={item.dokumentasi}>
+                                      <span className="truncate">{item.dokumentasi}</span><ExternalLink className="w-3 h-3 flex-shrink-0" />
                                     </a>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )}
+                                  ) : (<span className="text-gray-400">-</span>)}
                                 </td>
                                 <td className="p-4 flex gap-2">
                                   <button onClick={() => handleToggleStatus(item.id, item.status)} className={`p-2 rounded-lg transition-colors ${item.status === 'Selesai' ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' : 'bg-green-100 text-green-600 hover:bg-green-200'}`} title={item.status === 'Selesai' ? "Batalkan Selesai" : "Tandai Selesai"}>
                                     {item.status === 'Selesai' ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                                   </button>
-                                  <button onClick={() => handleEditClick(item)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Data">
-                                    <Edit className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Data">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => handleSendTelegram(item)} className="p-2 bg-sky-100 text-sky-600 rounded-lg hover:bg-sky-200" title="Kirim ke Telegram">
-                                    <Send className="w-4 h-4" />
-                                  </button>
+                                  <button onClick={() => handleEditClick(item)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Data"><Edit className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Data"><Trash2 className="w-4 h-4" /></button>
+                                  <button onClick={() => handleSendTelegram(item)} className="p-2 bg-sky-100 text-sky-600 rounded-lg hover:bg-sky-200" title="Kirim ke Telegram"><Send className="w-4 h-4" /></button>
                                 </td>
                               </motion.tr>
                             ))}
@@ -374,41 +430,73 @@ ${item.dokumentasi || "-"}
                         </tbody>
                       </table>
                     </div>
-
-                    <div className="w-full pt-6 border-t border-blue-200/50 flex justify-center items-center gap-2 text-sm text-blue-800/60 font-semibold">
-                      <span>Sistem Company © 2026 | Dibuat dengan</span>
-                      <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}>
-                        <Heart className="w-4 h-4 text-pink-500 fill-pink-500" />
-                      </motion.div>
-                      <span>oleh Fakhri</span>
-                      <motion.div animate={{ y: [0, -8, 0], rotate: [-10, 10, -10] }} transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }} className="ml-1">
-                        <Sun className="w-5 h-5 text-yellow-500 fill-yellow-400" />
-                      </motion.div>
-                    </div>
                   </div>
                 </motion.div>
 
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => { setEditingId(null); setFormData({}); setIsModalOpen(true); }}
-                  className="fixed bottom-10 right-10 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-full shadow-2xl shadow-blue-500/50 z-50 flex items-center gap-2"
-                >
-                  <Plus className="w-6 h-6" />
-                  <span className="font-bold pr-2">Tambah Data</span>
+                <motion.button onClick={() => { setEditingId(null); setFormData({}); setIsModalOpen(true); }} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} className="fixed bottom-10 right-10 bg-gradient-to-r from-blue-600 to-cyan-500 text-white p-4 rounded-full shadow-2xl z-50 flex items-center gap-2">
+                  <Plus className="w-6 h-6" /><span className="font-bold pr-2">Tambah Data</span>
                 </motion.button>
               </>
             )}
 
             {/* 2. MENU INVOICE */}
             {activeMenu === "Invoice" && (
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex items-center justify-center bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl min-h-[60vh]">
-                <div className="text-center">
-                  <FileText className="w-20 h-20 text-blue-300 mx-auto mb-4" />
-                  <h2 className="text-3xl font-extrabold text-blue-900">Modul Invoice</h2>
-                  <p className="text-gray-500 mt-2">Fitur ini sedang dalam tahap pengembangan.</p>
-                </div>
-              </motion.div>
+              <>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full bg-white/70 backdrop-blur-xl rounded-3xl shadow-2xl overflow-hidden border border-white/50 flex flex-col">
+                  <div className="p-8 flex-1">
+                    <div className="flex justify-between items-center mb-8">
+                      <h1 className="text-3xl font-extrabold text-blue-900">Data Invoice</h1>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-5 h-5" />
+                        <input type="text" placeholder="Cari No. Invoice, Perusahaan..." value={invoiceFilter} onChange={(e) => setInvoiceFilter(e.target.value)} className="pl-10 pr-4 py-2 rounded-full bg-white border-2 border-blue-200 outline-none focus:border-blue-500 shadow-sm min-w-[250px]" />
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-blue-100 bg-white/60 mb-6">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-blue-500 text-white">
+                            <th className="p-4">No. Invoice</th>
+                            <th className="p-4 min-w-[200px]">Perusahaan</th>
+                            <th className="p-4 whitespace-nowrap">Tanggal</th>
+                            <th className="p-4 whitespace-nowrap">Jatuh Tempo</th>
+                            <th className="p-4 text-right">Total Tagihan</th>
+                            <th className="p-4">Status</th>
+                            <th className="p-4 min-w-[150px]">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <AnimatePresence>
+                            {filteredInvoices.map((item, index) => (
+                              <motion.tr key={item.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ delay: index * 0.05 }} className="border-b border-blue-100 hover:bg-blue-50/50">
+                                <td className="p-4 font-bold text-blue-800">{item.id}</td>
+                                <td className="p-4 text-gray-800 font-semibold">{item.perusahaan}</td>
+                                <td className="p-4 text-gray-600">{item.tanggal}</td>
+                                <td className="p-4 text-gray-600 font-medium">{item.jatuhTempo}</td>
+                                <td className="p-4 text-right text-gray-800 font-bold">Rp {item.total.toLocaleString('id-ID')}</td>
+                                <td className="p-4">
+                                  <span className={`px-3 py-1 rounded-full text-sm font-bold ${item.status === 'Lunas' ? 'bg-green-100 text-green-700' : item.status === 'Draft' ? 'bg-gray-200 text-gray-700' : item.status === 'Overdue' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                    {item.status}
+                                  </span>
+                                </td>
+                                <td className="p-4 flex gap-2">
+                                  <button onClick={() => router.push(`/invoice/print/${item.id}`)} className="p-2 bg-indigo-100 text-indigo-600 rounded-lg hover:bg-indigo-200" title="Cetak PDF"><Printer className="w-4 h-4" /></button>
+                                  <button className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Invoice"><Edit className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeleteInvoice(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Invoice"><Trash2 className="w-4 h-4" /></button>
+                                </td>
+                              </motion.tr>
+                            ))}
+                          </AnimatePresence>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.button onClick={() => setIsInvoiceModalOpen(true)} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} className="fixed bottom-10 right-10 bg-gradient-to-r from-indigo-600 to-blue-500 text-white p-4 rounded-full shadow-2xl z-50 flex items-center gap-2">
+                  <Plus className="w-6 h-6" /><span className="font-bold pr-2">Buat Invoice</span>
+                </motion.button>
+              </>
             )}
 
             {/* 3. MENU ANALISIS */}
@@ -421,69 +509,54 @@ ${item.dokumentasi || "-"}
                 </div>
               </motion.div>
             )}
-
           </div>
         </div>
       </div>
 
-      {/* ================= MODAL FORM ================= */}
+      {/* ================= MODAL FORM JOB LIST ================= */}
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-24">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 50 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 50 }}
-              className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto"
-            >
-              <button onClick={() => { setIsModalOpen(false); setEditingId(null); }} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors">
-                <X className="w-6 h-6" />
-              </button>
-              
+            <motion.div initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: 50 }} className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <button onClick={() => { setIsModalOpen(false); setEditingId(null); }} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
               <h2 className="text-2xl font-bold text-blue-900 mb-6">{editingId ? "Edit Project" : "Tambah Project Baru"}</h2>
               
               <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
                 <div className="col-span-2 sm:col-span-1">
                   <label className="text-sm font-semibold text-gray-600">Perusahaan</label>
-                  <input required type="text" value={formData.perusahaan || ""} onChange={e => setFormData({...formData, perusahaan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                  <input required type="text" value={formData.perusahaan || ""} onChange={e => setFormData({...formData, perusahaan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
                 </div>
-                
                 <div className="col-span-2 sm:col-span-1">
                   <label className="text-sm font-semibold text-gray-600">Nama Project</label>
-                  <input required type="text" value={formData.namaProject || ""} onChange={e => setFormData({...formData, namaProject: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                  <input required type="text" value={formData.namaProject || ""} onChange={e => setFormData({...formData, namaProject: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
                 </div>
-                
                 <div>
                   <label className="text-sm font-semibold text-gray-600">Tanggal Masuk</label>
-                  <input required type="date" value={formData.tglMasuk === "-" ? "" : formData.tglMasuk || ""} onChange={e => setFormData({...formData, tglMasuk: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                  <input required type="date" value={formData.tglMasuk === "-" ? "" : formData.tglMasuk || ""} onChange={e => setFormData({...formData, tglMasuk: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-gray-600">Tanggal Keluar</label>
-                  <input type="date" value={formData.tglKeluar === "-" ? "" : formData.tglKeluar || ""} onChange={e => setFormData({...formData, tglKeluar: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                  <input type="date" value={formData.tglKeluar === "-" ? "" : formData.tglKeluar || ""} onChange={e => setFormData({...formData, tglKeluar: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
                 </div>
-
                 <div>
                   <label className="text-sm font-semibold text-gray-600">Status</label>
-                  <select value={formData.status || "Proses"} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all">
+                  <select value={formData.status || "Proses"} onChange={e => setFormData({...formData, status: e.target.value as any})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none">
                     <option value="Proses">Proses</option>
                     <option value="Selesai">Selesai</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-gray-600">Link Dokumentasi</label>
-                  <input type="text" value={formData.dokumentasi || ""} onChange={e => setFormData({...formData, dokumentasi: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" />
+                  <input type="text" value={formData.dokumentasi || ""} onChange={e => setFormData({...formData, dokumentasi: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
                 </div>
-                
                 <div className="col-span-2">
                   <label className="text-sm font-semibold text-gray-600">Keluhan</label>
-                  <textarea required value={formData.keluhan || ""} onChange={e => setFormData({...formData, keluhan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" rows={2}></textarea>
+                  <textarea required value={formData.keluhan || ""} onChange={e => setFormData({...formData, keluhan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" rows={2}></textarea>
                 </div>
-
                 <div className="col-span-2">
                   <label className="text-sm font-semibold text-gray-600">Perbaikan (Tindakan)</label>
-                  <textarea value={formData.perbaikan || ""} onChange={e => setFormData({...formData, perbaikan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 focus:ring-2 focus:ring-blue-400 outline-none transition-all" rows={2}></textarea>
+                  <textarea value={formData.perbaikan || ""} onChange={e => setFormData({...formData, perbaikan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" rows={2}></textarea>
                 </div>
-                
                 <motion.button type="submit" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="col-span-2 py-3 mt-2 bg-gradient-to-r from-blue-500 to-cyan-400 text-white rounded-xl font-bold shadow-lg">
                   {editingId ? "Simpan Perubahan" : "Simpan Data"}
                 </motion.button>
@@ -492,6 +565,82 @@ ${item.dokumentasi || "-"}
           </div>
         )}
       </AnimatePresence>
+
+      {/* ================= MODAL FORM INVOICE ================= */}
+      <AnimatePresence>
+        {isInvoiceModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-24">
+            <motion.div initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: 50 }} className="bg-white rounded-3xl p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <button onClick={() => setIsInvoiceModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
+              <h2 className="text-2xl font-bold text-indigo-900 mb-6">Buat Invoice Baru</h2>
+              
+              <form onSubmit={handleInvoiceSubmit} className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-sm font-semibold text-gray-600">Pilih Perusahaan / Klien</label>
+                    <select required value={invoiceFormData.perusahaan} onChange={e => setInvoiceFormData({...invoiceFormData, perusahaan: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none">
+                      <option value="">-- Pilih Perusahaan --</option>
+                      {uniqueCompanies.map((comp, idx) => (<option key={idx} value={comp}>{comp}</option>))}
+                      <option value="Manual">Ketik Manual / Perusahaan Baru...</option>
+                    </select>
+                    {invoiceFormData.perusahaan === "Manual" && (
+                      <input required type="text" placeholder="Ketik Nama Perusahaan Baru..." onChange={e => setInvoiceFormData({...invoiceFormData, perusahaan: e.target.value})} className="w-full p-3 border rounded-lg mt-2 bg-gray-50 outline-none" />
+                    )}
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="text-sm font-semibold text-gray-600">Status Pembayaran</label>
+                    <select value={invoiceFormData.status} onChange={e => setInvoiceFormData({...invoiceFormData, status: e.target.value as any})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none">
+                      <option value="Draft">Draft</option><option value="Terkirim">Terkirim</option><option value="Lunas">Lunas</option><option value="Overdue">Overdue</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-600">Tanggal Invoice</label>
+                    <input required type="date" value={invoiceFormData.tanggal} onChange={e => setInvoiceFormData({...invoiceFormData, tanggal: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-gray-600">Tanggal Jatuh Tempo</label>
+                    <input required type="date" value={invoiceFormData.jatuhTempo} onChange={e => setInvoiceFormData({...invoiceFormData, jatuhTempo: e.target.value})} className="w-full p-3 border rounded-lg mt-1 bg-gray-50 outline-none" />
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold text-gray-700">Detail Item Tagihan</h3>
+                    <button type="button" onClick={handleAddInvoiceItem} className="text-sm px-3 py-1.5 bg-indigo-50 text-indigo-600 font-semibold rounded-lg hover:bg-indigo-100 transition-colors">+ Tambah Baris Pekerjaan</button>
+                  </div>
+                  <div className="space-y-3 max-h-[25vh] overflow-y-auto pr-1">
+                    {invoiceFormData.items.map((item, idx) => (
+                      <div key={idx} className="flex gap-3 items-end bg-gray-50 p-3 rounded-xl border border-gray-100">
+                        <div className="flex-1">
+                          <label className="text-xs font-semibold text-gray-500">Deskripsi Pekerjaan</label>
+                          <input required type="text" value={item.deskripsi} onChange={e => handleInvoiceItemChange(idx, 'deskripsi', e.target.value)} placeholder="Contoh: Maintenance Inverter" className="w-full p-2 border rounded-lg mt-1 bg-white outline-none text-sm" />
+                        </div>
+                        <div className="w-20">
+                          <label className="text-xs font-semibold text-gray-500">Qty</label>
+                          <input required type="number" min="1" value={item.qty} onChange={e => handleInvoiceItemChange(idx, 'qty', parseInt(e.target.value) || 1)} className="w-full p-2 border rounded-lg mt-1 bg-white outline-none text-sm text-center" />
+                        </div>
+                        <div className="w-40">
+                          <label className="text-xs font-semibold text-gray-500">Harga Satuan (Rp)</label>
+                          <input required type="number" min="0" value={item.harga} onChange={e => handleInvoiceItemChange(idx, 'harga', parseInt(e.target.value) || 0)} className="w-full p-2 border rounded-lg mt-1 bg-white outline-none text-sm text-right" />
+                        </div>
+                        <button type="button" onClick={() => handleRemoveInvoiceItem(idx)} disabled={invoiceFormData.items.length === 1} className="p-2.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 disabled:opacity-40 transition-colors mb-0.5" title="Hapus baris"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4 flex justify-between items-center bg-indigo-50/50 p-4 rounded-2xl">
+                  <span className="font-bold text-gray-700">Total Tagihan:</span>
+                  <span className="text-xl font-extrabold text-indigo-600">Rp {calculateInvoiceTotal().toLocaleString('id-ID')}</span>
+                </div>
+
+                <motion.button type="submit" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-blue-500 text-white rounded-xl font-bold shadow-lg">Simpan & Buat Invoice</motion.button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </CloudBackground>
   );
 }
