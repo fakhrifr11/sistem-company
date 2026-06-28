@@ -36,12 +36,17 @@ export default function Header() {
     }
   }, [router]);
 
-  const handleLogout = () => {
-    // Hapus data sesi lalu tendang ke halaman login
-    localStorage.removeItem("userSession");
-    router.push("/login");
-  };
-  //===========================================
+ // === FUNGSI LOGOUT & PINDAH KE PAGE LOGIN ===
+ const handleLogout = () => {
+  // Hapus data dari memori browser
+  localStorage.removeItem("userSession");
+  
+  // === HANCURKAN TIKET (Cookie) ===
+  document.cookie = "isLoggedIn=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  
+  // Arahkan kembali ke halaman login
+  router.push("/login"); 
+};
 
   return (
     <motion.header

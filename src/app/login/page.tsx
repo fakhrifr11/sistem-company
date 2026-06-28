@@ -39,6 +39,8 @@ export default function AuthPage() {
         // Simpan data user (tanpa password) ke localStorage agar dibaca oleh Header
         localStorage.setItem("userSession", JSON.stringify(data.user));
         
+        document.cookie = "isLoggedIn=true; path=/; max-age=86400";
+
         // Jika berhasil, langsung ke dashboard
         router.push("/dashboard");
         

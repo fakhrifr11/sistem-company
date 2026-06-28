@@ -6,9 +6,12 @@ import CloudBackground from "@/components/CloudBackground";
 import { 
   Plus, Edit, Trash2, Search, X, Check, Sun, Heart, ExternalLink, Send,
   LayoutDashboard, FileText, PieChart, ChevronLeft, ChevronRight,
-  Printer
+  Printer, Image as ImageIcon
 } from "lucide-react";
 import Header from "@/app/header/page"; 
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Pie, Cell 
+} from "recharts";
 
 type ProjectData = {
   id: string;
@@ -29,6 +32,7 @@ type InvoiceData = {
   jatuhTempo: string;
   total: number;
   status: "Draft" | "Terkirim" | "Lunas" | "Overdue";
+  items?: any[];
 };
 
 export default function Dashboard() {
@@ -49,6 +53,7 @@ export default function Dashboard() {
   // State Invoice
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
   const [invoiceFilter, setInvoiceFilter] = useState("");
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [invoiceFormData, setInvoiceFormData] = useState({
     perusahaan: "",
@@ -93,6 +98,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
+    
   }, []);
 
   const filteredData = data.filter((item) =>
@@ -109,6 +115,8 @@ export default function Dashboard() {
   );
 
   const uniqueCompanies = Array.from(new Set(data.map(item => item.perusahaan).filter(Boolean)));
+
+  
 
   // ===================== HANDLER JOB LIST (DB VERCEL) =====================
   const handleEditClick = (item: ProjectData) => {
@@ -188,6 +196,18 @@ export default function Dashboard() {
     }
   };
 
+  const handleEditInvoiceClick = (item: InvoiceData) => {
+    setEditingInvoiceId(item.id);
+    setInvoiceFormData({
+      perusahaan: item.perusahaan || "",
+      tanggal: item.tanggal,
+      jatuhTempo: item.jatuhTempo === "-" ? "" : item.jatuhTempo,
+      status: item.status,
+      items: item.items && item.items.length > 0 ? item.items : [{ deskripsi: "", qty: 1, harga: 0 }]
+    });
+    setIsInvoiceModalOpen(true);
+  };
+
   const handleToggleStatus = async (id: string, currentStatus: string) => {
     const today = new Date().toISOString().split('T')[0];
     const isProses = currentStatus === "Proses";
@@ -249,13 +269,50 @@ ${item.dokumentasi || "-"}
     }
   };
 
-  // ===================== HANDLER INVOICE =====================
-  const handleDeleteInvoice = (id: string) => {
-    if (!confirm("Yakin ingin menghapus invoice ini?")) return;
-    const updatedInvoices = invoices.filter(inv => inv.id !== id);
-    setInvoices(updatedInvoices);
+  // ===================== FETCH & HANDLER INVOICE (VERCEL DB) =====================
+  
+  // 1. Fungsi untuk menarik data invoice dari database
+  const fetchInvoices = async () => {
+    try {
+      const response = await fetch('/api/invoices');
+      const result = await response.json();
+      
+      if (result.data) {
+        const formattedInvoices = result.data.map((inv: any) => ({
+          id: inv.id,
+          perusahaan: inv.perusahaan,
+          tanggal: inv.tanggal,
+          jatuhTempo: inv.jatuh_tempo,
+          total: parseFloat(inv.total),
+          status: inv.status,
+          items: inv.items
+        }));
+        setInvoices(formattedInvoices);
+      }
+    } catch (error) {
+      console.error("Gagal mengambil data invoice:", error);
+    }
   };
 
+  // 2. Pastikan data Job List & Invoice ditarik bersamaan saat web pertama kali dibuka
+  useEffect(() => {
+    fetchData();      // Tarik data Job List
+    fetchInvoices();  // Tarik data Invoice
+  }, []);
+
+  // 3. Handler hapus invoice via icon Trash
+  const handleDeleteInvoice = async (id: string) => {
+    if (!confirm("Yakin ingin menghapus invoice ini?")) return;
+    try {
+      const res = await fetch(`/api/invoices?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Gagal menghapus data");
+      fetchInvoices(); // Refresh tabel setelah dihapus
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // 4. Handler untuk form item (Tambah/Ubah/Hapus baris)
   const handleAddInvoiceItem = () => {
     setInvoiceFormData({
       ...invoiceFormData,
@@ -279,29 +336,112 @@ ${item.dokumentasi || "-"}
     return invoiceFormData.items.reduce((sum, item) => sum + (item.qty * item.harga), 0);
   };
 
-  const handleInvoiceSubmit = (e: React.FormEvent) => {
+  // 5. Handler untuk Submit / Simpan Invoice Baru
+  const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newInvoice: InvoiceData = {
-      id: `INV-202600${invoices.length + 1}`,
-      perusahaan: invoiceFormData.perusahaan === "Manual" ? "" : invoiceFormData.perusahaan,
-      tanggal: invoiceFormData.tanggal,
-      jatuhTempo: invoiceFormData.jatuhTempo || "-",
-      total: calculateInvoiceTotal(),
-      status: invoiceFormData.status
-    };
-
-    setInvoices([...invoices, newInvoice]);
-    setIsInvoiceModalOpen(false);
     
-    setInvoiceFormData({
-      perusahaan: "",
-      tanggal: new Date().toISOString().split('T')[0],
-      jatuhTempo: "",
-      status: "Draft",
-      items: [{ deskripsi: "", qty: 1, harga: 0 }]
-    });
-    alert("Invoice baru berhasil dibuat!");
+  const finalPerusahaan = invoiceFormData.perusahaan === "Manual" ? "" : invoiceFormData.perusahaan;
+
+    try {
+      if (editingInvoiceId) {
+        // ================= PROSES UPDATE (PUT) =================
+        const res = await fetch('/api/invoices', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingInvoiceId,
+            perusahaan: finalPerusahaan,
+            tanggal: invoiceFormData.tanggal,
+            jatuh_tempo: invoiceFormData.jatuhTempo || "-",
+            total: calculateInvoiceTotal(),
+            status: invoiceFormData.status,
+            items: invoiceFormData.items
+          })
+        });
+
+        if (!res.ok) throw new Error("Gagal memperbarui invoice");
+        alert("Invoice berhasil diperbarui!");
+        
+      } else {
+        // ================= PROSES SIMPAN BARU (POST) =================
+        const newId = `INV-${new Date().getFullYear()}${String(invoices.length + 1).padStart(3, '0')}`;
+        const res = await fetch('/api/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newId,
+            perusahaan: finalPerusahaan,
+            tanggal: invoiceFormData.tanggal,
+            jatuh_tempo: invoiceFormData.jatuhTempo || "-",
+            total: calculateInvoiceTotal(),
+            status: invoiceFormData.status,
+            items: invoiceFormData.items
+          })
+        });
+
+        if (!res.ok) throw new Error("Gagal menyimpan invoice");
+        alert("Invoice berhasil disimpan ke database!");
+      }
+
+      // Selesai (Sama untuk keduanya)
+      setIsInvoiceModalOpen(false);
+      setEditingInvoiceId(null);
+      
+      // Reset Form
+      setInvoiceFormData({
+        perusahaan: "",
+        tanggal: new Date().toISOString().split('T')[0],
+        jatuhTempo: "",
+        status: "Draft",
+        items: [{ deskripsi: "", qty: 1, harga: 0 }]
+      });
+      
+      fetchInvoices(); // Refresh tabel
+    } catch (err: any) {
+      alert(err.message);
+    }
   };
+
+  // ===================== LOGIKA HITUNG DATA ANALISIS =====================
+  // 1. Hitung Project
+  const totalProjects = data.length;
+  const projectProses = data.filter(p => p.status === "Proses").length;
+  const projectSelesai = data.filter(p => p.status === "Selesai").length;
+
+  // 2. Hitung Keuangan dari Invoice
+  const totalPendapatan = invoices
+    .filter(inv => inv.status === "Lunas")
+    .reduce((sum, inv) => sum + inv.total, 0);
+
+  const tagihanMenggantung = invoices
+    .filter(inv => inv.status === "Terkirim" || inv.status === "Overdue")
+    .reduce((sum, inv) => sum + inv.total, 0);
+
+  // 3. Format Data untuk Grafik Lingkaran (Pie Chart - Status Project)
+  const dataPieProject = [
+    { name: "Selesai", value: projectSelesai, color: "#10B981" }, // Hijau
+    { name: "Proses", value: projectProses, color: "#FBBF24" },  // Kuning
+  ];
+
+  // 4. Format Data untuk Grafik Batang (Bar Chart - Nominal Finansial)
+  const dataBarFinansial = [
+    { name: "Draft", Total: invoices.filter(i => i.status === "Draft").reduce((s, i) => s + i.total, 0) },
+    { name: "Terkirim", Total: invoices.filter(i => i.status === "Terkirim").reduce((s, i) => s + i.total, 0) },
+    { name: "Lunas", Total: invoices.filter(i => i.status === "Lunas").reduce((s, i) => s + i.total, 0) },
+    { name: "Overdue", Total: invoices.filter(i => i.status === "Overdue").reduce((s, i) => s + i.total, 0) },
+  ];
+
+  // 5. Ambil 3 Klien dengan Invoice Terbesar (Leaderboard)
+  const topClients = Array.from(
+    invoices.reduce((map, inv) => {
+      const currentTotal = map.get(inv.perusahaan) || 0;
+      map.set(inv.perusahaan, currentTotal + inv.total);
+      return map;
+    }, new Map<string, number>())
+  )
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 3);
 
   // ===================== RENDER LAYOUT =====================
   return (
@@ -387,7 +527,7 @@ ${item.dokumentasi || "-"}
                             <th className="p-4 min-w-[150px]">Perusahaan</th>
                             <th className="p-4 min-w-[150px]">Nama Project</th>
                             <th className="p-4 min-w-[200px]">Keluhan</th>
-                            <th className="p-4 min-w-[200px]">Perbaikan</th>
+                            <th className="p-4 min-w-[200px]">Tindakan</th>
                             <th className="p-4">Status</th>
                             <th className="p-4">Dokumentasi</th>
                             <th className="p-4 min-w-[180px]">Aksi</th>
@@ -481,7 +621,8 @@ ${item.dokumentasi || "-"}
                                 </td>
                                 <td className="p-4 flex gap-2">
                                   <button onClick={() => router.push(`/invoice/print/${item.id}`)} className="p-2 bg-indigo-100 text-indigo-600 rounded-lg hover:bg-indigo-200" title="Cetak PDF"><Printer className="w-4 h-4" /></button>
-                                  <button className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Invoice"><Edit className="w-4 h-4" /></button>
+                                  <button onClick={() => handleEditInvoiceClick(item)} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200" title="Edit Invoice"><Edit className="w-4 h-4" />
+                                  </button>
                                   <button onClick={() => handleDeleteInvoice(item.id)} className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200" title="Hapus Invoice"><Trash2 className="w-4 h-4" /></button>
                                 </td>
                               </motion.tr>
@@ -501,12 +642,124 @@ ${item.dokumentasi || "-"}
 
             {/* 3. MENU ANALISIS */}
             {activeMenu === "Analisis" && (
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-1 flex items-center justify-center bg-white/70 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl min-h-[60vh]">
-                <div className="text-center">
-                  <PieChart className="w-20 h-20 text-cyan-300 mx-auto mb-4" />
-                  <h2 className="text-3xl font-extrabold text-blue-900">Modul Analisis</h2>
-                  <p className="text-gray-500 mt-2">Fitur ini sedang dalam tahap pengembangan.</p>
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                className="space-y-6 w-full pb-10"
+              >
+                {/* --- BARIS 1: SUMMARY CARDS --- */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1 */}
+                  <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-xl flex flex-col justify-between">
+                    <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Total Pendapatan (Lunas)</span>
+                    <span className="text-2xl font-extrabold text-emerald-600 mt-2">Rp {totalPendapatan.toLocaleString('id-ID')}</span>
+                  </div>
+                  {/* Card 2 */}
+                  <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-xl flex flex-col justify-between">
+                    <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Piutang / Menggantung</span>
+                    <span className="text-2xl font-extrabold text-amber-600 mt-2">Rp {tagihanMenggantung.toLocaleString('id-ID')}</span>
+                  </div>
+                  {/* Card 3 */}
+                  <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-xl flex flex-col justify-between">
+                    <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Project Berjalan</span>
+                    <span className="text-2xl font-extrabold text-blue-600 mt-2">{projectProses} <span className="text-sm font-normal text-gray-400">Pekerjaan</span></span>
+                  </div>
+                  {/* Card 4 */}
+                  <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-xl flex flex-col justify-between">
+                    <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Project Selesai</span>
+                    <span className="text-2xl font-extrabold text-indigo-600 mt-2">{projectSelesai} <span className="text-sm font-normal text-gray-400">Sukses</span></span>
+                  </div>
                 </div>
+
+                {/* --- BARIS 2: CHARTS VISUALIZATION --- */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
+                  {/* Grafik Batang Finansial (Lebar 2 Kolom) */}
+                  <div className="lg:col-span-2 bg-white/80 backdrop-blur-md p-6 rounded-3xl border border-white/50 shadow-xl">
+                    <h3 className="text-lg font-bold text-blue-900 mb-4">Statistik Keuangan Per Status Invoice</h3>
+                    <div className="w-full h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dataBarFinansial}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <XAxis dataKey="name" stroke="#64748B" />
+                          <YAxis stroke="#64748B" tickFormatter={(value) => `Rp ${value.toLocaleString('id-ID')}`} />
+                          <Tooltip formatter={(value: any) => [`Rp ${value.toLocaleString('id-ID')}`, 'Total']} />
+                          <Legend />
+                          <Bar dataKey="Total" fill="#3B82F6" radius={[8, 8, 0, 0]} name="Nominal Rupiah" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Grafik Donut Status Project (Lebar 1 Kolom) */}
+                  <div className="bg-white/80 backdrop-blur-md p-6 rounded-3xl border border-white/50 shadow-xl flex flex-col justify-between">
+                    <h3 className="text-lg font-bold text-blue-900 mb-2">Rasio Status Project</h3>
+                    <div className="w-full h-52 relative flex items-center justify-center">
+                      {totalProjects === 0 ? (
+                        <span className="text-gray-400 text-sm">Tidak ada data project</span>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={dataPieProject.filter(d => d.value > 0)}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {dataPieProject.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                      {/* Angka di tengah lingkaran */}
+                      <div className="absolute text-center flex flex-col">
+                        <span className="text-2xl font-extrabold text-blue-900">{totalProjects}</span>
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-tight">Total Job</span>
+                      </div>
+                    </div>
+                    {/* Legenda Manual di bawah chart */}
+                    <div className="flex justify-center gap-6 mt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                        <span className="text-sm font-medium text-gray-600">Selesai ({projectSelesai})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-amber-400" />
+                        <span className="text-sm font-medium text-gray-600">Proses ({projectProses})</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* --- BARIS 3: LEADERBOARD / DATA TAMBAHAN --- */}
+                <div className="bg-white/80 backdrop-blur-md p-6 rounded-3xl border border-white/50 shadow-xl w-full">
+                  <h3 className="text-lg font-bold text-blue-900 mb-4">👑 Klien / Perusahaan Kontributor Terbesar</h3>
+                  {topClients.length === 0 ? (
+                    <p className="text-gray-400 text-sm py-2">Belum ada transaksi invoice terdata.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {topClients.map((client, index) => (
+                        <div key={index} className="flex items-center justify-between p-4 bg-white/50 rounded-xl border border-blue-50/50 hover:bg-white transition-colors shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 flex items-center justify-center bg-blue-100 text-blue-600 font-bold rounded-full text-sm">
+                              {index + 1}
+                            </span>
+                            <span className="font-bold text-gray-800">{client.name || "Klien Umum / Perorangan"}</span>
+                          </div>
+                          <span className="font-extrabold text-blue-600">Rp {client.total.toLocaleString('id-ID')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </motion.div>
             )}
           </div>
@@ -571,8 +824,8 @@ ${item.dokumentasi || "-"}
         {isInvoiceModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 pt-24">
             <motion.div initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.8, y: 50 }} className="bg-white rounded-3xl p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
-              <button onClick={() => setIsInvoiceModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
-              <h2 className="text-2xl font-bold text-indigo-900 mb-6">Buat Invoice Baru</h2>
+            <button onClick={() => { setIsInvoiceModalOpen(false); setEditingInvoiceId(null); }} className="absolute top-6 right-6 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
+              <h2 className="text-2xl font-bold text-indigo-900 mb-6"> {editingInvoiceId ? `Edit Invoice (${editingInvoiceId})` : "Buat Invoice Baru"} </h2>
               
               <form onSubmit={handleInvoiceSubmit} className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
