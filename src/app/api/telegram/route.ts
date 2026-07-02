@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
         replyText = `📊 *RINGKASAN BISNIS HARI INI*\n\n🛠 *Project Berjalan:* ${projectProses} Pekerjaan\n💰 *Total Omset Lunas:* Rp ${pendapatanLunas.toLocaleString('id-ID')}\n⚠️ *Tagihan Belum Cair:* Rp ${tagihanMenggantung.toLocaleString('id-ID')}\n\nSemangat kerjanya Bos! 🚀`;
       } catch (dbError) {
-        replyText = "Waduh, saya gagal mengambil data dari database nih Bos.";
+        replyText = "Waduhh, saya gagal mengambil data dari database nih Bos.";
       }
     }
     
