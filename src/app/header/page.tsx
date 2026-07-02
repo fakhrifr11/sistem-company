@@ -38,14 +38,14 @@ export default function Header() {
 
  // === FUNGSI LOGOUT & PINDAH KE PAGE LOGIN ===
  const handleLogout = () => {
-  // Hapus data dari memori browser
+  // 1. Hapus data dari memori lokal
   localStorage.removeItem("userSession");
   
-  // === HANCURKAN TIKET (Cookie) ===
+  // 2. Hancurkan tiket (Cookie)
   document.cookie = "isLoggedIn=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   
-  // Arahkan kembali ke halaman login
-  router.push("/login"); 
+  // 3. Paksa refresh halaman secara total (jangan gunakan router.push)
+  window.location.href = "/login"; 
 };
 
   return (
