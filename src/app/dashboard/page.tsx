@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import CloudBackground from "@/components/CloudBackground";
 import { 
@@ -8,7 +8,6 @@ import {
   LayoutDashboard, FileText, PieChart, ChevronLeft, ChevronRight,
   Printer, Image as ImageIcon
 } from "lucide-react";
-import Header from "@/app/header/page"; 
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Pie, Cell 
 } from "recharts";
@@ -48,7 +47,17 @@ export default function Dashboard() {
 
   // State Sidebar
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [activeMenu, setActiveMenu] = useState("Job list");
+
+  const searchParams = useSearchParams();
+
+// Membaca menu aktif langsung dari URL web
+const activeMenu = searchParams.get("menu") || "Pekerjaan";
+
+// Kita buat fungsi bohongan "setActiveMenu" agar kode Anda yang lama di bawah tidak error 
+// jika ada tombol yang mencoba mengubah state. Fungsi ini akan mengarahkan ulang URL-nya.
+const setActiveMenu = (menu: string) => {
+  router.push(`/dashboard?menu=${menu}`);
+};
 
   // State Invoice
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
@@ -64,7 +73,7 @@ export default function Dashboard() {
   });
 
   const menuItems = [
-    { id: "Job list", label: "Job List", icon: LayoutDashboard },
+    { id: "Job list", label: "Pekerjaan", icon: LayoutDashboard },
     { id: "Invoice", label: "Invoice", icon: FileText },
     { id: "Analisis", label: "Analisis", icon: PieChart },
   ];
@@ -446,56 +455,14 @@ ${item.dokumentasi || "-"}
   // ===================== RENDER LAYOUT =====================
   return (
     <CloudBackground>
-      <Header /> 
       <div className="flex h-screen w-full overflow-hidden pt-[90px] box-border relative z-40">
-        
-        {/* === SIDEBAR === */}
-        <motion.div 
-          animate={{ width: isSidebarOpen ? 260 : 80 }}
-          transition={{ duration: 0.4, type: "spring", bounce: 0.1 }}
-          className="relative bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl z-40 flex flex-col h-[calc(100%-2rem)] ml-4 my-4 rounded-3xl"
-        >
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="absolute -right-3 top-6 bg-blue-500 text-white rounded-full p-1 shadow-lg hover:bg-cyan-400 transition-colors z-50"
-          >
-            {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-
-          <div className="flex-1 py-6 px-3 space-y-2 overflow-y-auto">
-            {menuItems.map((menu) => {
-              const Icon = menu.icon;
-              const isActive = activeMenu === menu.id;
-
-              return (
-                <motion.button
-                  key={menu.id}
-                  onClick={() => setActiveMenu(menu.id)}
-                  whileHover={{ x: 4 }}
-                  whileTap={{ scale: 0.95 }}
-                  className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 overflow-hidden ${
-                    isActive 
-                      ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-white shadow-lg shadow-blue-500/30 font-bold" 
-                      : "text-blue-900/70 hover:bg-blue-100/50 hover:text-blue-900 font-medium"
-                  }`}
-                  title={menu.label}
-                >
-                  <Icon className={`w-6 h-6 flex-shrink-0 ${isActive ? "text-white" : "text-blue-600"}`} />
-                  <span className={`whitespace-nowrap transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
-                    {menu.label}
-                  </span>
-                </motion.button>
-              );
-            })}
-          </div>
-        </motion.div>
 
         {/* === KONTEN UTAMA === */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 relative h-full">
           <div className="w-full max-w-7xl mx-auto flex flex-col h-full">
             
             {/* 1. MENU JOB LIST */}
-            {activeMenu === "Job list" && (
+            {activeMenu === "Pekerjaan" && (
               <>
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
